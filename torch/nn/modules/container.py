@@ -8,7 +8,7 @@ from .module import Module
 from ..parameter import Parameter
 from torch._jit_internal import _copy_to_script_wrapper
 
-from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, overload, Sequence, Tuple, TypeVar, Union
+from typing import Dict, ItemsView, Iterable, Iterator, KeysView, Mapping, Optional, overload, Sequence, Tuple, TypeVar, Union, ValuesView
 
 __all__ = ['Container', 'Sequential', 'ModuleList', 'ModuleDict', 'ParameterList', 'ParameterDict']
 
@@ -30,7 +30,7 @@ def _addindent(s_, numSpaces):
 
 class Container(Module):
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Module) -> None:
         super(Container, self).__init__()
         # DeprecationWarning is ignored by default <sigh>
         warnings.warn("nn.Container is deprecated. All of it's functionality "
@@ -568,7 +568,7 @@ class ModuleDict(Module):
     # remove forward alltogether to fallback on Module's _forward_unimplemented
 
 
-class ParameterList(Module):
+class ParameterList(Module, Sequence[T]):
     r"""Holds parameters in a list.
 
     :class:`~torch.nn.ParameterList` can be used like a regular Python
@@ -596,7 +596,7 @@ class ParameterList(Module):
                 return x
     """
 
-    def __init__(self, values: Optional[Iterable[Any]] = None) -> None:
+    def __init__(self, values: Optional[Iterable[T]] = None) -> None:
         super(ParameterList, self).__init__()
         self._size = 0
         if values is not None:
@@ -612,7 +612,7 @@ class ParameterList(Module):
         return str(idx)
 
     @overload
-    def __getitem__(self, idx: int) -> Any:
+    def __getitem__(self, idx: int) -> T:
         ...
 
     @overload
@@ -630,7 +630,7 @@ class ParameterList(Module):
             idx = self._get_abs_string_index(idx)
             return getattr(self, str(idx))
 
-    def __setitem__(self, idx: int, param: Any) -> None:
+    def __setitem__(self, idx: int, param: T) -> None:
         # Note that all other function that add an entry to the list part of
         # the ParameterList end up here. So this is the only place where we need
         # to wrap things into Parameter if needed.
@@ -644,10 +644,10 @@ class ParameterList(Module):
     def __len__(self) -> int:
         return self._size
 
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[T]:
         return iter(self[i] for i in range(len(self)))
 
-    def __iadd__(self, parameters: Iterable[Any]) -> 'ParameterList':
+    def __iadd__(self, parameters: Iterable[T]) -> 'ParameterList':
         return self.extend(parameters)
 
     def __dir__(self):
@@ -655,18 +655,18 @@ class ParameterList(Module):
         keys = [key for key in keys if not key.isdigit()]
         return keys
 
-    def append(self, value: Any) -> 'ParameterList':
+    def append(self, value: T) -> 'ParameterList':
         """Appends a given value at the end of the list.
 
         Args:
-            value (Any): value to append
+            value (T): value to append
         """
         new_idx = len(self)
         self._size += 1
         self[new_idx] = value
         return self
 
-    def extend(self, values: Iterable[Any]) -> 'ParameterList':
+    def extend(self, values: Iterable[T]) -> 'ParameterList':
         """Appends values from a Python iterable to the end of the list.
 
         Args:
@@ -700,7 +700,9 @@ class ParameterList(Module):
         raise RuntimeError('ParameterList should not be called.')
 
 
-class ParameterDict(Module):
+# `Mapping` but not a `MutableMapping` since as currently implemented, the signatures
+# of the mutable methods are incompatible, e.g. `update` acts very differently.
+class ParameterDict(Module, Mapping[str, T]):
     r"""Holds parameters in a dictionary.
 
     ParameterDict can be indexed like a regular Python dictionary, but Parameters it
@@ -719,8 +721,8 @@ class ParameterDict(Module):
 
     Args:
         values (iterable, optional): a mapping (dictionary) of
-            (string : Any) or an iterable of key-value pairs
-            of type (string, Any)
+            (string : T) or an iterable of key-value pairs
+            of type (string, T)
 
     Example::
 
@@ -737,7 +739,7 @@ class ParameterDict(Module):
                 return x
     """
 
-    def __init__(self, parameters: Any = None) -> None:
+    def __init__(self, parameters: Optional[Dict[str, T]] = None) -> None:
         super(ParameterDict, self).__init__()
         self._keys: Dict[str, None] = {}
         if parameters is not None:
@@ -752,11 +754,11 @@ class ParameterDict(Module):
             # Use the key as-is so that `.named_parameters()` returns the right thing
             return key
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> T:
         attr = self._key_to_attr(key)
         return getattr(self, attr)
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: str, value: T) -> None:
         # Note that all other function that add an entry to the dictionary part of
         # the ParameterDict end up here. So this is the only place where we need
         # to wrap things into Parameter if needed.
@@ -792,14 +794,14 @@ class ParameterDict(Module):
     def __contains__(self, key: str) -> bool:
         return key in self._keys
 
-    def setdefault(self, key: str, default: Optional[Any] = None) -> Any:
+    def setdefault(self, key: str, default: Optional[T] = None) -> T:
         """If key is in the ParameterDict, return its value.
         If not, insert `key` with a parameter `default` and return `default`.
         `default` defaults to `None`.
 
         Args:
             key (str): key to set default for
-            default (Any): the parameter set to the key
+            default (T): the parameter set to the key
         """
 
         if key not in self:
@@ -812,7 +814,7 @@ class ParameterDict(Module):
         for k in self._keys.copy():
             del self[k]
 
-    def pop(self, key: str) -> Any:
+    def pop(self, key: str) -> T:
         r"""Remove key from the ParameterDict and return its parameter.
 
         Args:
@@ -822,7 +824,7 @@ class ParameterDict(Module):
         del self[key]
         return v
 
-    def popitem(self) -> Tuple[str, Any]:
+    def popitem(self) -> Tuple[str, T]:
         """Remove and return the last inserted `(key, parameter)` pair
         from the ParameterDict
         """
@@ -833,7 +835,7 @@ class ParameterDict(Module):
         del self[k]
         return k, val
 
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
+    def get(self, key: str, default: Optional[T] = None) -> T:
         r"""Return the parameter associated with key if present.
         Otherwise return default if provided, None if not.
 
@@ -843,7 +845,7 @@ class ParameterDict(Module):
         """
         return self[key] if key in self else default
 
-    def fromkeys(self, keys: Iterable[str], default: Optional[Any] = None) -> 'ParameterDict':
+    def fromkeys(self, keys: Iterable[str], default: Optional[T] = None) -> 'ParameterDict':
         r"""Return a new ParameterDict with the keys provided
 
         Args:
@@ -852,22 +854,22 @@ class ParameterDict(Module):
         """
         return ParameterDict(((k, default) for k in keys))
 
-    def keys(self) -> Iterable[str]:
+    def keys(self) -> KeysView[str]:
         r"""Return an iterable of the ParameterDict keys.
         """
         return self._keys.keys()
 
-    def items(self) -> Iterable[Tuple[str, Any]]:
+    def items(self) -> ItemsView[str, T]:
         r"""Return an iterable of the ParameterDict key/value pairs.
         """
         return ((k, self[k]) for k in self._keys)
 
-    def values(self) -> Iterable[Any]:
+    def values(self) -> ValuesView[T]:
         r"""Return an iterable of the ParameterDict values.
         """
         return (self[k] for k in self._keys)
 
-    def update(self, parameters: Union[Mapping[str, Any], 'ParameterDict']) -> None:
+    def update(self, parameters: Union[Mapping[str, T], 'ParameterDict']) -> None:
         r"""Update the :class:`~torch.nn.ParameterDict` with the key-value pairs from a
         mapping or an iterable, overwriting existing keys.
 
